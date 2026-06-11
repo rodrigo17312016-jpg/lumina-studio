@@ -366,9 +366,25 @@ $$("[data-close]").forEach((b) => b.addEventListener("click", () => b.closest(".
 $$(".modal").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m) m.classList.remove("open"); }));
 
 /* ---------------- export PNG / ZIP ---------------- */
-// Caché de @font-face POR PLANTILLA: html-to-image solo embebe las fuentes que
-// usa el nodo capturado, y cada plantilla usa familias distintas.
+// getFontEmbedCSS embebe TODAS las @font-face del documento (6 familias ≈ 722KB),
+// lo que vuelve la rasterización lentísima. Filtramos a las familias que usa cada
+// plantilla (cada slide usa Jost + la fuente de su título) → ~1/3 del tamaño.
 const fontCSSCache = {};
+const TPL_FONTS = {
+  softluxe: ["Jost", "Cormorant Garamond"],
+  noir:     ["Jost", "Playfair Display"],
+  pop:      ["Jost", "Space Grotesk"],
+  minimal:  ["Jost", "Inter"],
+  foto:     ["Jost", "DM Serif Display"],
+};
+function filterFontCSS(css, families) {
+  if (!css || !families || !families.length) return css;
+  return css.split(/(?=@font-face)/).filter((block) => {
+    if (!/@font-face/.test(block)) return true; // preámbulo, mantener
+    const m = block.match(/font-family:\s*['"]?([^;'"]+)/i);
+    return m ? families.some((f) => m[1].toLowerCase().includes(f.toLowerCase())) : false;
+  }).join("");
+}
 
 async function snap(i) {
   await document.fonts.ready;
@@ -380,7 +396,8 @@ async function snap(i) {
   try {
     const key = state.template;
     if (!(key in fontCSSCache)) {
-      fontCSSCache[key] = await htmlToImage.getFontEmbedCSS(node);
+      const raw = await htmlToImage.getFontEmbedCSS(node);
+      fontCSSCache[key] = filterFontCSS(raw, TPL_FONTS[key]);
       if (!fontCSSCache[key]) {
         // Sin crossorigin en el <link> de Google Fonts esto saldría vacío y los PNG
         // exportarían con tipografía de sistema. Avisamos en vez de fallar en silencio.
@@ -794,6 +811,89 @@ $("#vGo").addEventListener("click", async () => {
 
 $("#vDown").addEventListener("click", () => {
   if (reelBlobURL) download(reelBlobURL, `lumina-reel.${reelExt}`);
+});
+
+/* ---------------- COMPARTIR / PUBLICAR ---------------- */
+let shareFilesCache = null;
+
+async function buildShareFiles(onStep) {
+  const urls = await snapAll(onStep);
+  return urls.map((u, i) => new File([dataURLtoBlob(u)], `slide-${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" }));
+}
+
+function canShareFiles(files) {
+  try { return typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files }); }
+  catch (e) { return false; }
+}
+
+$("#btnShare").addEventListener("click", () => {
+  $("#shCaption").value = state.caption || "";
+  $("#shVideo").style.display = reelBlobURL ? "" : "none";
+  $("#mShare").classList.add("open");
+  // Caption al portapapeles (iOS no acepta texto+archivos juntos al compartir a IG → se pega aparte).
+  if (state.caption) { try { navigator.clipboard.writeText(state.caption); } catch (e) {} }
+  // REGLA DE ORO: preparar los File ANTES del toque para llamar share() de forma síncrona
+  // (si haces await justo antes de share(), iOS pierde el "gesto de usuario" y no abre nada).
+  const b = $("#shImgs");
+  b.disabled = true; b.textContent = `Preparando imágenes… 0/${state.slides.length}`;
+  shareFilesCache = null;
+  buildShareFiles((d, t) => { b.textContent = `Preparando imágenes… ${d}/${t}`; })
+    .then((f) => { shareFilesCache = f; b.disabled = false; b.textContent = "📲 Compartir imágenes"; })
+    .catch(() => { b.disabled = false; b.textContent = "📲 Compartir imágenes"; });
+});
+
+function shareImages() {
+  if (!shareFilesCache) { toast("Las imágenes aún se preparan, espera un segundo y vuelve a tocar.", 3500); return; }
+  const files = shareFilesCache;
+  if (canShareFiles(files)) {
+    // Solo {files}, sin text/title: Instagram/TikTok en iOS fallan si mezclas texto + archivos.
+    navigator.share({ files }).catch((e) => { if (e.name !== "AbortError") toast("No se pudo compartir: " + e.message, 4000); });
+  } else {
+    toast("Tu navegador no comparte archivos (suele ser escritorio). Descargo las imágenes para que las subas…", 5000);
+    $("#btnPngs").click();
+  }
+}
+$("#shImgs").addEventListener("click", shareImages);
+
+$("#shVideo").addEventListener("click", async () => {
+  if (!reelBlobURL) return;
+  try {
+    const blob = await fetch(reelBlobURL).then((r) => r.blob());
+    const file = new File([blob], `lumina-reel.${reelExt}`, { type: blob.type });
+    if (canShareFiles([file])) navigator.share({ files: [file] }).catch((e) => { if (e.name !== "AbortError") toast("No se pudo compartir.", 3500); });
+    else { toast("Descarga el video y súbelo en la app.", 3500); $("#vDown").click(); }
+  } catch (e) { toast("No se pudo compartir el video.", 3500); }
+});
+
+$("#shCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("#shCaption").value); toast("✓ Caption copiado"); }
+  catch { $("#shCaption").select(); document.execCommand("copy"); toast("✓ Caption copiado"); }
+});
+$("#shDl").addEventListener("click", () => $("#btnPngs").click());
+
+$("#mShare").addEventListener("click", (e) => {
+  const btn = e.target.closest(".shbtn"); if (!btn) return;
+  const net = btn.dataset.net;
+  const cap = $("#shCaption").value || state.caption || "";
+  const capE = encodeURIComponent(cap);
+  const label = { ig: "Instagram", tiktok: "TikTok", fb: "Facebook" };
+  // IG/TikTok/Facebook NO suben una imagen local desde web → única vía real: el menú de compartir (móvil).
+  if (net === "ig" || net === "tiktok" || net === "fb") {
+    if (canShareFiles(shareFilesCache || [])) { shareImages(); }
+    else { toast(`Para ${label[net]} desde la compu: descarga las imágenes y súbelas. En el celular usa "Compartir imágenes".`, 5500); $("#btnPngs").click(); }
+    return;
+  }
+  // X / WhatsApp / Telegram: abren el compositor con el TEXTO listo (no suben la imagen local).
+  const intents = {
+    x:  `https://twitter.com/intent/tweet?text=${capE}`,
+    wa: `https://wa.me/?text=${capE}`,
+    tg: `https://t.me/share/url?url=&text=${capE}`,
+  };
+  if (intents[net]) {
+    if (navigator.clipboard) navigator.clipboard.writeText(cap).catch(() => {});
+    window.open(intents[net], "_blank", "noopener");
+    toast("Abrí la red con el texto listo. Adjunta la imagen descargada si quieres 📎", 4500);
+  }
 });
 
 /* ---------------- init ---------------- */

@@ -32,6 +32,7 @@ node D:/YEMINA/MANICURA/.claude/serve-lumina.mjs
    - **PNGs** → cada slide en 1080px listo para Instagram.
    - **ZIP** → todos los slides + caption.txt.
    - **🎬 Crear Reel** → video vertical 1080×1920 con transiciones suaves y música opcional (MP3), grabado en el navegador. Mantén la pestaña visible mientras graba.
+6. **📤 Publicar** → desde el celular, "Compartir imágenes" abre el menú nativo y eliges Instagram, TikTok, Facebook… con todo listo. X/WhatsApp/Telegram abren con el texto. (Ver **PUBLICAR-REDES.md** para qué se puede / el camino del auto-publish con 1 clic.)
 
 El proyecto se **autoguarda** en el navegador; también puedes Guardar/Abrir como archivo `.json`.
 

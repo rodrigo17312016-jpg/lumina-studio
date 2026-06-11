@@ -203,6 +203,19 @@ input[type="range"] { width: 100%; accent-color: #e2a9b8; }
 .hint { font-size: 0.78rem; color: var(--tx-2); line-height: 1.5; margin-top: 0.6rem; }
 .hint a { color: var(--acc); }
 
+/* Compartir / Publicar */
+.shrow { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.55rem; }
+.shgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
+.shbtn {
+  display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  padding: 0.75rem 0.4rem; border-radius: 12px; background: var(--bg-3);
+  border: 1px solid var(--line); color: var(--tx); font-size: 0.8rem; transition: 0.2s var(--ease);
+}
+.shbtn span { font-size: 1.3rem; line-height: 1; }
+.shbtn:hover { border-color: var(--acc); transform: translateY(-2px); }
+.shbtn:active { transform: scale(0.96); }
+@media (max-width: 480px) { .shgrid { grid-template-columns: repeat(2, 1fr); } }
+
 .result { display: none; margin-top: 1rem; }
 .result.show { display: block; }
 .result textarea { width: 100%; min-height: 110px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem; }
