@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lumina Studio — Carruseles y Reels con IA</title>
+  <meta name="description" content="Crea carruseles de Instagram y reels en segundos. Escribe tu idea, elige una plantilla premium y exporta PNG o video. Sin diseñador, sin esperas." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- crossorigin es OBLIGATORIO: sin él, html-to-image no puede leer las reglas
+       @font-face y los PNG exportados saldrían con tipografía de sistema. -->
+  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Playfair+Display:wght@500;700;900&family=Inter:wght@400;600;800&family=Space+Grotesk:wght@500;700&family=DM+Serif+Display&display=swap" rel="stylesheet" crossorigin="anonymous" />
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ============ TOPBAR ============ -->
+    <header class="topbar">
+      <div class="logo"><b>LUMINA</b><span>Content Studio</span></div>
+
+      <button class="tbtn tbtn--hero" id="btnAI">✦ Generar con IA</button>
+      <button class="tbtn" id="btnReel">🎬 Crear Reel</button>
+      <button class="tbtn" id="btnZip">⬇ ZIP</button>
+      <button class="tbtn" id="btnPngs">PNGs</button>
+      <button class="tbtn" id="btnSave">Guardar</button>
+      <label class="tbtn" style="cursor:pointer">Abrir<input type="file" id="loadFile" accept=".json" hidden /></label>
+    </header>
+
+    <div class="main">
+
+      <!-- ============ SIDEBAR ============ -->
+      <aside class="panel">
+        <div class="tabs">
+          <button class="tab on" data-tab="contenido">Contenido</button>
+          <button class="tab" data-tab="marca">Marca</button>
+          <button class="tab" data-tab="diseno">Diseño</button>
+        </div>
+
+        <div class="panel__scroll">
+          <!-- TAB: CONTENIDO -->
+          <div class="tabpane on" id="pane-contenido">
+            <div id="slideCards"><!-- por JS --></div>
+            <button class="addslide" id="btnAddSlide">+ Añadir slide</button>
+          </div>
+
+          <!-- TAB: MARCA -->
+          <div class="tabpane" id="pane-marca">
+            <div class="fl"><label>Nombre de la marca</label><input type="text" id="bName" placeholder="Mi Marca" /></div>
+            <div class="fl"><label>Usuario / handle</label><input type="text" id="bHandle" placeholder="mimarca" /></div>
+            <div class="fl">
+              <label>Logo (PNG transparente)</label>
+              <label class="filebtn">Subir logo<input type="file" id="bLogo" accept="image/*" /></label>
+            </div>
+            <div class="row2">
+              <div class="fl"><label>Color primario</label><input type="color" id="bC1" value="#dd8aa0" /></div>
+              <div class="fl"><label>Color acento</label><input type="color" id="bC2" value="#c6a368" /></div>
+            </div>
+            <label class="switch">Mostrar logo en slides<input type="checkbox" id="bShowLogo" checked /></label>
+            <label class="switch">Mostrar @handle<input type="checkbox" id="bShowHandle" checked /></label>
+            <label class="switch">Número de página<input type="checkbox" id="bShowNum" checked /></label>
+            <label class="switch">Flecha “desliza” →<input type="checkbox" id="bShowArrow" checked /></label>
+          </div>
+
+          <!-- TAB: DISEÑO -->
+          <div class="tabpane" id="pane-diseno">
+            <div class="fl"><label>Plantilla</label></div>
+            <div class="tplgrid" id="tplGrid"><!-- por JS --></div>
+            <div style="height:1rem"></div>
+            <div class="fl">
+              <label>Formato</label>
+              <select id="fmt">
+                <option value="45">4:5 — Feed (1080×1350)</option>
+                <option value="11">1:1 — Cuadrado (1080×1080)</option>
+              </select>
+            </div>
+            <div class="fl">
+              <label>Tamaño de letra <span id="fsVal" style="text-transform:none;letter-spacing:0">×1.0</span></label>
+              <input type="range" id="fontScale" min="0.8" max="1.3" step="0.05" value="1" />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ============ STAGE ============ -->
+      <section class="stage">
+        <div class="stage__view" id="stageView">
+          <button class="stage__nav prev" id="navPrev" aria-label="Anterior">‹</button>
+          <div class="zoomwrap" id="zoomWrap"><!-- slide activo por JS --></div>
+          <button class="stage__nav next" id="navNext" aria-label="Siguiente">›</button>
+        </div>
+        <div class="thumbs" id="thumbs"><!-- miniaturas por JS --></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: IA ============ -->
+  <div class="modal" id="mAI">
+    <div class="modal__card">
+      <button class="modal__x" data-close>×</button>
+      <h3>✦ Generar carrusel con IA</h3>
+      <p class="sub">Describe tu idea y la IA escribe el carrusel completo: hook, slides y caption.</p>
+
+      <div class="fl"><label>Tema *</label><input type="text" id="aiTema" placeholder="ej. cómo hacer que tu manicura dure más" /></div>
+      <div class="row2">
+        <div class="fl"><label>Audiencia</label><input type="text" id="aiAud" placeholder="ej. mujeres 25-45 en Barcelona" /></div>
+        <div class="fl"><label>Tono</label>
+          <select id="aiTono">
+            <option>elegante y cercano</option><option>educativo</option><option>motivador directo</option>
+            <option>divertido</option><option>premium minimalista</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="fl"><label>Nº de slides</label>
+          <select id="aiN"><option>5</option><option selected>6</option><option>7</option><option>8</option></select>
+        </div>
+        <div class="fl"><label>Motor</label>
+          <select id="aiProv">
+            <option value="demo">Demo sin IA (fórmulas)</option>
+            <option value="gemini">Gemini (API key gratis)</option>
+            <option value="claude">Claude (Anthropic)</option>
+          </select>
+        </div>
+      </div>
+      <div class="fl" id="aiKeyRow" style="display:none">
+        <label>API key</label>
+        <input type="text" id="aiKey" placeholder="se guarda solo en este navegador" autocomplete="off" />
+      </div>
+
+      <button class="bigbtn" id="aiGo">Generar carrusel</button>
+      <p class="hint" id="aiHint">El modo demo usa fórmulas profesionales sin conexión. Para IA real consigue una key gratis en
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.</p>
+
+      <div class="result" id="aiResult">
+        <div class="fl"><label>Caption para Instagram (copia y pega)</label><textarea id="aiCaption"></textarea></div>
+        <button class="tbtn" id="aiCopy">Copiar caption</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: REEL ============ -->
+  <div class="modal" id="mReel">
+    <div class="modal__card">
+      <button class="modal__x" data-close>×</button>
+      <h3>🎬 Crear Reel (video)</h3>
+      <p class="sub">Convierte tus slides en un video vertical 1080×1920 con transiciones suaves, listo para Reels/TikTok.</p>
+
+      <div class="row2">
+        <div class="fl"><label>Segundos por slide</label>
+          <select id="vDur"><option>2</option><option selected>2.8</option><option>3.5</option><option>4.5</option></select>
+        </div>
+        <div class="fl">
+          <label>Música (opcional)</label>
+          <label class="filebtn">Subir MP3<input type="file" id="vMusic" accept="audio/*" /></label>
+        </div>
+      </div>
+
+      <button class="bigbtn" id="vGo">Grabar video</button>
+      <div class="progress" id="vProg"><span></span></div>
+      <video class="vprev" id="vPrev" controls playsinline></video>
+      <p class="hint">El video se graba en tu navegador, sin servidores ni costos. Mantén esta pestaña visible mientras se graba.</p>
+      <div style="height:.6rem"></div>
+      <button class="tbtn" id="vDown" style="display:none">⬇ Descargar video</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- ============ Scripts ============ -->
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+  <script src="./content.js" defer></script>
+  <script src="./templates.js" defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

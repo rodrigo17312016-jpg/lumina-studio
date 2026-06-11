@@ -1,0 +1,7 @@
+# Dev local
+node_modules/
+*.log
+.DS_Store
+
+# Carpeta temporal de despliegue
+/_deploy/
