@@ -484,41 +484,83 @@ function buildUserPrompt(tema, aud, tono, n) {
   return `Tema: ${tema}\nAudiencia: ${aud || "general hispanohablante"}\nTono: ${tono}\nNúmero de slides: ${n}\nMarca: ${state.brand.name} (@${state.brand.handle})`;
 }
 
+function friendlyGeminiError(status, detail) {
+  const d = detail ? ` — ${detail}` : "";
+  if (status === 200) return `Gemini no devolvió texto (posible bloqueo de contenido)${d}. Prueba otro tema o el modo Demo.`;
+  if (status === 429) return `Gemini sin cuota gratis ahora mismo (429)${d}. Tu key SÍ funciona; el plan gratis está topado. Espera 1-2 min, revisa tu cuota en aistudio.google.com/rate-limit, o usa el modo Demo.`;
+  if (status === 400) return `Petición inválida a Gemini (400)${d}.`;
+  if (status === 401 || status === 403) return `Gemini rechazó la key (${status})${d}. Crea otra en aistudio.google.com/apikey y habilita la Generative Language API.`;
+  if (status === 404) return `Modelo de Gemini no disponible (404)${d}.`;
+  return `Error de Gemini (${status})${d}.`;
+}
+
 async function callGemini(key, sys, user) {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: sys }] },
-        contents: [{ parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.8, responseMimeType: "application/json" },
-      }),
+  // Cadena de modelos actuales (2026): si uno está sin cuota (429), probamos el siguiente.
+  const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
+  let last = { status: 0, detail: "" };
+  for (const model of models) {
+    let res;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: sys }] },
+            contents: [{ parts: [{ text: user }] }],
+            generationConfig: { temperature: 0.85, responseMimeType: "application/json" },
+          }),
+        }
+      );
+    } catch (netErr) {
+      throw new Error("No se pudo conectar con Gemini (¿internet o bloqueo de red?). " + netErr.message);
     }
-  );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: revisa tu API key`);
-  const j = await res.json();
-  return j.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (res.ok) {
+      const j = await res.json();
+      const txt = j.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (txt) return txt;
+      const reason = j.promptFeedback?.blockReason || j.candidates?.[0]?.finishReason || "vacía";
+      last = { status: 200, detail: "respuesta " + reason };
+      continue; // probar siguiente modelo
+    }
+    let detail = "";
+    try { const e = await res.json(); detail = e?.error?.message || ""; } catch (x) {}
+    last = { status: res.status, detail };
+    if (res.status !== 429) break; // solo el 429 vale la pena reintentar con otro modelo
+  }
+  throw new Error(friendlyGeminiError(last.status, last.detail));
 }
 
 async function callClaude(key, sys, user) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2500,
-      system: sys,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) throw new Error(`Claude ${res.status}: revisa tu API key`);
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 2500,
+        system: sys,
+        messages: [{ role: "user", content: user }],
+      }),
+    });
+  } catch (netErr) {
+    throw new Error("No se pudo conectar con Claude. " + netErr.message);
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { const e = await res.json(); detail = e?.error?.message || ""; } catch (x) {}
+    const d = detail ? ` — ${detail}` : "";
+    if (res.status === 429) throw new Error(`Claude sin cuota ahora (429)${d}. Espera un momento o usa el modo Demo.`);
+    if (res.status === 401) throw new Error(`Key de Claude inválida (401)${d}. Revísala en console.anthropic.com.`);
+    throw new Error(`Error de Claude (${res.status})${d}.`);
+  }
   const j = await res.json();
   return j.content?.[0]?.text || "";
 }
@@ -544,6 +586,18 @@ function demoGenerate(tema, aud, tono, n) {
   return { slides, caption: `¿Cuál de estos puntos vas a aplicar primero? 👇\n\n#${tag} #tips #crecimiento #contenidoenespanol #aprendeconmigo` };
 }
 
+function applyAIResult(result) {
+  state.slides = (result.slides || []).map((s) => ({
+    role: ["cover", "content", "cta"].includes(s.role) ? s.role : "content",
+    kicker: s.kicker || "", title: s.title || "", body: s.body || "", img: null,
+  }));
+  state.caption = result.caption || "";
+  current = 0;
+  persist(); renderAll();
+  $("#aiCaption").value = state.caption;
+  $("#aiResult").classList.add("show");
+}
+
 $("#aiGo").addEventListener("click", async () => {
   const tema = $("#aiTema").value.trim();
   if (!tema) return toast("Escribe un tema primero");
@@ -554,33 +608,31 @@ $("#aiGo").addEventListener("click", async () => {
   const btn = $("#aiGo");
   btn.disabled = true; btn.textContent = "Generando…";
   try {
-    let result;
     if (prov === "demo") {
-      result = demoGenerate(tema, aud, tono, n);
+      applyAIResult(demoGenerate(tema, aud, tono, n));
+      toast("✓ Carrusel generado (modo Demo)");
     } else {
       const key = $("#aiKey").value.trim();
-      if (!key) throw new Error("Pega tu API key");
+      if (!key) throw new Error("Pega tu API key primero");
       keys[prov] = key;
       try { localStorage.setItem("lumina_keys", JSON.stringify(keys)); } catch (e) {}
       const sys = window.LUMINA_CONTENT.aiSystemPrompt;
       const user = buildUserPrompt(tema, aud, tono, n);
       const raw = prov === "gemini" ? await callGemini(key, sys, user) : await callClaude(key, sys, user);
-      result = extractJSON(raw);
-      if (!Array.isArray(result.slides) || !result.slides.length) throw new Error("Respuesta sin slides");
+      const result = extractJSON(raw);
+      if (!Array.isArray(result.slides) || !result.slides.length) throw new Error("La IA respondió sin slides válidos");
+      applyAIResult(result);
+      toast("✓ Carrusel generado con IA");
     }
-    state.slides = result.slides.map((s) => ({
-      role: ["cover", "content", "cta"].includes(s.role) ? s.role : "content",
-      kicker: s.kicker || "", title: s.title || "", body: s.body || "",
-    }));
-    state.caption = result.caption || "";
-    current = 0;
-    persist(); renderAll();
-    $("#aiCaption").value = state.caption;
-    $("#aiResult").classList.add("show");
-    toast("✓ Carrusel generado");
   } catch (e) {
     console.error(e);
-    toast("⚠ " + e.message, 4200);
+    if (prov !== "demo") {
+      // Garantía: nunca te quedes sin nada. Generamos un borrador con el motor offline.
+      applyAIResult(demoGenerate(tema, aud, tono, n));
+      toast("⚠ " + e.message + "  ·  Te dejé un borrador en modo Demo mientras tanto.", 9000);
+    } else {
+      toast("⚠ " + e.message, 5000);
+    }
   } finally {
     btn.disabled = false; btn.textContent = "Generar carrusel";
   }
