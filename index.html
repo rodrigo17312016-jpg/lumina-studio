@@ -173,28 +173,35 @@
   <div class="modal" id="mShare">
     <div class="modal__card">
       <button class="modal__x" data-close>×</button>
-      <h3>📤 Publicar en redes</h3>
-      <p class="sub">Desde el <b>celular</b> es 1 toque: "Compartir imágenes" abre el menú de tu teléfono y eliges Instagram, TikTok, Facebook… con las imágenes ya listas.</p>
+      <h3>🚀 Publicar en redes</h3>
+      <p class="sub" id="shMode">🧪 Modo prueba — el flujo funciona ya. <a href="#" id="shConnect">Conectar mis redes</a> para publicar de verdad.</p>
 
-      <button class="bigbtn" id="shImgs">📲 Compartir imágenes (carrusel)</button>
-      <button class="tbtn" id="shVideo" style="width:100%;margin-top:.55rem;display:none">🎬 Compartir el video (Reel)</button>
+      <p class="netlabel">Marca dónde publicar</p>
+      <div class="netsel" id="netSel"><!-- checkboxes por JS --></div>
 
-      <div class="fl" style="margin-top:1.1rem"><label>Caption (cópialo y pégalo al publicar)</label><textarea id="shCaption" rows="4"></textarea></div>
-      <div class="shrow">
-        <button class="tbtn" id="shCopy">📋 Copiar caption</button>
-        <button class="tbtn" id="shDl">⬇ Descargar imágenes</button>
+      <div class="fl" style="margin-top:.9rem"><label>Caption (texto del post)</label><textarea id="shCaption" rows="4"></textarea></div>
+
+      <button class="bigbtn" id="shPublish">🚀 Publicar en las seleccionadas</button>
+      <div class="publog" id="pubLog" hidden></div>
+
+      <!-- Conexión Late (oculto hasta tocar "Conectar") -->
+      <div class="connbox" id="connBox" hidden>
+        <div class="fl"><label>API key de Late / Zernio (empieza con sk_)</label><input type="text" id="lateKey" placeholder="sk_..." autocomplete="off" /></div>
+        <button class="tbtn" id="lateSave">Guardar y cargar mis redes</button>
+        <p class="hint">1) Crea cuenta gratis en <a href="https://getlate.dev" target="_blank" rel="noopener">getlate.dev</a> y conecta tus redes (Instagram Business, TikTok, Facebook…). 2) Copia tu API key (Settings → API). 3) Pégala aquí. Se guarda solo en tu navegador.</p>
       </div>
 
-      <p class="sub" style="margin-top:1.3rem">O abre una red directamente:</p>
-      <div class="shgrid">
-        <button class="shbtn" data-net="ig"><span>📸</span>Instagram</button>
-        <button class="shbtn" data-net="tiktok"><span>🎵</span>TikTok</button>
-        <button class="shbtn" data-net="fb"><span>👍</span>Facebook</button>
-        <button class="shbtn" data-net="x"><span>𝕏</span>X / Twitter</button>
-        <button class="shbtn" data-net="wa"><span>💬</span>WhatsApp</button>
-        <button class="shbtn" data-net="tg"><span>✈️</span>Telegram</button>
-      </div>
-      <p class="hint" id="shHint">📱 <b>En el celular</b> (lo mejor): "Compartir imágenes" → elige Instagram, TikTok, Facebook… (única vía real para imágenes; el caption se copia solo, pégalo). · 💻 <b>En la compu:</b> X, WhatsApp y Telegram abren con el texto listo; para Instagram/TikTok/Facebook descarga las imágenes y súbelas. · 🚀 Publicar 100% automático con 1 clic → requiere conectar tus cuentas (ver opciones en el chat).</p>
+      <!-- Compartir manual (sin conectar nada) -->
+      <details class="shmanual">
+        <summary>O compartir manualmente desde el celular (sin conectar nada)</summary>
+        <button class="tbtn" id="shImgs" style="width:100%;margin-top:.6rem">📲 Compartir imágenes (menú del teléfono)</button>
+        <button class="tbtn" id="shVideo" style="width:100%;margin-top:.45rem;display:none">🎬 Compartir el video (Reel)</button>
+        <div class="shrow">
+          <button class="tbtn" id="shCopy">📋 Copiar caption</button>
+          <button class="tbtn" id="shDl">⬇ Descargar imágenes</button>
+        </div>
+        <p class="hint">El menú del teléfono es la única vía a Instagram/TikTok sin conectar cuenta. En la compu, descarga y sube.</p>
+      </details>
     </div>
   </div>
 

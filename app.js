@@ -814,11 +814,15 @@ $("#vDown").addEventListener("click", () => {
 });
 
 /* ---------------- COMPARTIR / PUBLICAR ---------------- */
-let shareFilesCache = null;
+let shareFilesCache = null;   // File[] para el menú de compartir
+let shareUrlsCache = null;    // dataURL[] para enviar al backend (auto-publish)
+const LATE_KEY_LS = "lumina_late_key";
 
-async function buildShareFiles(onStep) {
+async function prepareAssets(onStep) {
   const urls = await snapAll(onStep);
-  return urls.map((u, i) => new File([dataURLtoBlob(u)], `slide-${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" }));
+  shareUrlsCache = urls;
+  shareFilesCache = urls.map((u, i) => new File([dataURLtoBlob(u)], `slide-${String(i + 1).padStart(2, "0")}.png`, { type: "image/png" }));
+  return urls;
 }
 
 function canShareFiles(files) {
@@ -830,16 +834,20 @@ $("#btnShare").addEventListener("click", () => {
   $("#shCaption").value = state.caption || "";
   $("#shVideo").style.display = reelBlobURL ? "" : "none";
   $("#mShare").classList.add("open");
-  // Caption al portapapeles (iOS no acepta texto+archivos juntos al compartir a IG → se pega aparte).
   if (state.caption) { try { navigator.clipboard.writeText(state.caption); } catch (e) {} }
-  // REGLA DE ORO: preparar los File ANTES del toque para llamar share() de forma síncrona
-  // (si haces await justo antes de share(), iOS pierde el "gesto de usuario" y no abre nada).
+  // Estado de conexión + checkboxes de redes
+  const key = localStorage.getItem(LATE_KEY_LS) || "";
+  $("#lateKey").value = key;
+  setPublishMode(key);
+  if (!netLoaded) renderNets(null);
+  if (key && !netLoaded) loadAccounts(key);
+  // Preparar imágenes (para compartir Y para auto-publicar), sin bloquear el modal.
   const b = $("#shImgs");
-  b.disabled = true; b.textContent = `Preparando imágenes… 0/${state.slides.length}`;
-  shareFilesCache = null;
-  buildShareFiles((d, t) => { b.textContent = `Preparando imágenes… ${d}/${t}`; })
-    .then((f) => { shareFilesCache = f; b.disabled = false; b.textContent = "📲 Compartir imágenes"; })
-    .catch(() => { b.disabled = false; b.textContent = "📲 Compartir imágenes"; });
+  b.disabled = true; b.textContent = `Preparando… 0/${state.slides.length}`;
+  shareFilesCache = null; shareUrlsCache = null;
+  prepareAssets((d, t) => { b.textContent = `Preparando… ${d}/${t}`; })
+    .then(() => { b.disabled = false; b.textContent = "📲 Compartir imágenes (menú del teléfono)"; })
+    .catch(() => { b.disabled = false; b.textContent = "📲 Compartir imágenes (menú del teléfono)"; });
 });
 
 function shareImages() {
@@ -871,29 +879,105 @@ $("#shCopy").addEventListener("click", async () => {
 });
 $("#shDl").addEventListener("click", () => $("#btnPngs").click());
 
+/* ---------------- AUTO-PUBLISH (multi-red vía backend /api/publish) ---------------- */
+const NET_META = {
+  instagram: { e: "📸", n: "Instagram" }, tiktok: { e: "🎵", n: "TikTok" },
+  facebook: { e: "👍", n: "Facebook" }, twitter: { e: "𝕏", n: "X" }, x: { e: "𝕏", n: "X" },
+  linkedin: { e: "in", n: "LinkedIn" }, threads: { e: "🧵", n: "Threads" },
+  pinterest: { e: "📌", n: "Pinterest" }, youtube: { e: "▶", n: "YouTube" },
+  telegram: { e: "✈️", n: "Telegram" }, bluesky: { e: "🦋", n: "Bluesky" },
+};
+let netLoaded = false;
+
+function setPublishMode(key) {
+  $("#shMode").innerHTML = key
+    ? `✅ Conectado a Late — publica de verdad. <a href="#" id="shConnect">cambiar API key</a>`
+    : `🧪 Modo prueba — el flujo funciona ya. <a href="#" id="shConnect">Conectar mis redes</a> para publicar de verdad.`;
+}
+
+function renderNets(accounts) {
+  let items;
+  if (accounts && accounts.length) {
+    items = accounts.map((a) => {
+      const p = String(a.platform || "").toLowerCase();
+      const meta = NET_META[p] || { e: "•", n: a.platform || "red" };
+      return { platform: p, accountId: a.accountId || a._id || "", label: meta.n + (a.username ? " · " + a.username : ""), e: meta.e, checked: true };
+    });
+  } else {
+    items = ["instagram", "tiktok", "facebook", "twitter", "linkedin", "threads"]
+      .map((p) => ({ platform: p, accountId: "", label: NET_META[p].n, e: NET_META[p].e, checked: false }));
+  }
+  $("#netSel").innerHTML = items.map((it) =>
+    `<label class="netchk"><input type="checkbox" data-platform="${it.platform}" data-account="${it.accountId}"${it.checked ? " checked" : ""}/><span class="netchk__e">${it.e}</span><span>${it.label}</span></label>`
+  ).join("");
+}
+
+async function loadAccounts(key) {
+  try {
+    const r = await fetch("/api/accounts?key=" + encodeURIComponent(key));
+    const data = await r.json().catch(() => ({}));
+    if (Array.isArray(data.accounts) && data.accounts.length) {
+      renderNets(data.accounts); netLoaded = true;
+      toast("✓ " + data.accounts.length + " red(es) conectada(s)");
+    } else if (data.demo) {
+      toast("Pega tu API key para cargar tus redes conectadas", 4000);
+    } else {
+      toast("Tu cuenta de Late aún no tiene redes conectadas.", 5000);
+    }
+  } catch (e) { toast("No se pudo cargar tus redes: " + e.message, 4000); }
+}
+
+function setPubLog(platform, txt) {
+  const el = $(`#pubLog [data-p="${platform}"]`);
+  if (el) el.innerHTML = `${txt} · <b>${NET_META[platform]?.n || platform}</b>`;
+}
+
+async function publishAll() {
+  const checks = $$("#netSel input:checked");
+  if (!checks.length) return toast("Marca al menos una red");
+  const platforms = checks.map((c) => { const o = { platform: c.dataset.platform }; if (c.dataset.account) o.accountId = c.dataset.account; return o; });
+  const btn = $("#shPublish"); const orig = btn.textContent; btn.disabled = true;
+  const log = $("#pubLog"); log.hidden = false;
+  log.innerHTML = platforms.map((p) => `<div data-p="${p.platform}">⏳ <b>${NET_META[p.platform]?.n || p.platform}</b></div>`).join("");
+  try {
+    btn.textContent = "Preparando imágenes…";
+    let urls = shareUrlsCache;
+    if (!urls) urls = await prepareAssets((d, t) => { btn.textContent = `Preparando ${d}/${t}…`; });
+    btn.textContent = "Publicando…";
+    const key = localStorage.getItem(LATE_KEY_LS) || "";
+    const r = await fetch("/api/publish", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, caption: $("#shCaption").value || state.caption || "", platforms, images: urls }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.mode === "demo") {
+      platforms.forEach((p) => setPubLog(p.platform, "🧪 listo (prueba)"));
+      toast(data.message || "Modo prueba ✓", 7000);
+    } else if (data.error || !r.ok) {
+      platforms.forEach((p) => setPubLog(p.platform, "⚠ error"));
+      toast("⚠ " + (data.error || "Error " + r.status) + (data.detail ? " — " + JSON.stringify(data.detail).slice(0, 140) : ""), 8000);
+    } else {
+      platforms.forEach((p) => setPubLog(p.platform, "✅ publicado"));
+      toast("✅ ¡Publicado en " + platforms.length + " red(es)!", 5000);
+    }
+  } catch (e) {
+    platforms.forEach((p) => setPubLog(p.platform, "⚠ error"));
+    toast("⚠ No se pudo publicar: " + e.message, 6000);
+  } finally { btn.disabled = false; btn.textContent = orig; }
+}
+$("#shPublish").addEventListener("click", publishAll);
+
+// El enlace #shConnect se re-crea con setPublishMode → delegación en el modal.
 $("#mShare").addEventListener("click", (e) => {
-  const btn = e.target.closest(".shbtn"); if (!btn) return;
-  const net = btn.dataset.net;
-  const cap = $("#shCaption").value || state.caption || "";
-  const capE = encodeURIComponent(cap);
-  const label = { ig: "Instagram", tiktok: "TikTok", fb: "Facebook" };
-  // IG/TikTok/Facebook NO suben una imagen local desde web → única vía real: el menú de compartir (móvil).
-  if (net === "ig" || net === "tiktok" || net === "fb") {
-    if (canShareFiles(shareFilesCache || [])) { shareImages(); }
-    else { toast(`Para ${label[net]} desde la compu: descarga las imágenes y súbelas. En el celular usa "Compartir imágenes".`, 5500); $("#btnPngs").click(); }
-    return;
-  }
-  // X / WhatsApp / Telegram: abren el compositor con el TEXTO listo (no suben la imagen local).
-  const intents = {
-    x:  `https://twitter.com/intent/tweet?text=${capE}`,
-    wa: `https://wa.me/?text=${capE}`,
-    tg: `https://t.me/share/url?url=&text=${capE}`,
-  };
-  if (intents[net]) {
-    if (navigator.clipboard) navigator.clipboard.writeText(cap).catch(() => {});
-    window.open(intents[net], "_blank", "noopener");
-    toast("Abrí la red con el texto listo. Adjunta la imagen descargada si quieres 📎", 4500);
-  }
+  if (e.target && e.target.id === "shConnect") { e.preventDefault(); const c = $("#connBox"); c.hidden = !c.hidden; }
+});
+$("#lateSave").addEventListener("click", () => {
+  const key = $("#lateKey").value.trim();
+  if (!key.startsWith("sk_")) return toast("La API key de Late empieza con sk_", 4000);
+  localStorage.setItem(LATE_KEY_LS, key);
+  setPublishMode(key); netLoaded = false;
+  $("#connBox").hidden = true;
+  loadAccounts(key);
 });
 
 /* ---------------- init ---------------- */
